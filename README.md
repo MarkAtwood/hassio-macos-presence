@@ -17,13 +17,13 @@ This daemon monitors actual system state: screen lock, idle time, and active app
 
 | Entity | Type | Description |
 |--------|------|-------------|
-| `binary_sensor.<name>_active` | occupancy | On when: unlocked + screen on + idle < threshold |
-| `binary_sensor.<name>_screen_locked` | lock | Screen lock / screensaver state |
-| `binary_sensor.<name>_screen_on` | binary | Display power state |
-| `sensor.<name>_idle_time` | sensor | Seconds since last keyboard/mouse input |
-| `sensor.<name>_frontmost_app` | sensor | Currently active application |
-| `sensor.<name>_apple_id` | sensor | Logged-in Apple ID (iCloud account) |
-| `sensor.<name>_console_user` | sensor | macOS username at console |
+| `binary_sensor.macos_presence_<host>_active` | occupancy | On when: unlocked + screen on + idle < threshold |
+| `binary_sensor.macos_presence_<host>_screen_locked` | lock | Screen lock / screensaver state |
+| `binary_sensor.macos_presence_<host>_screen_on` | binary | Display power state |
+| `sensor.macos_presence_<host>_idle_time` | sensor | Seconds since last keyboard/mouse input |
+| `sensor.macos_presence_<host>_frontmost_app` | sensor | Currently active application |
+| `sensor.macos_presence_<host>_apple_id` | sensor | Logged-in Apple ID (iCloud account) |
+| `sensor.macos_presence_<host>_console_user` | sensor | macOS username at console |
 
 ## Requirements
 
@@ -71,7 +71,7 @@ You'll be prompted for:
 |---------|-------------|---------|
 | HA Server URL | Your Home Assistant instance | `http://192.168.1.10:8123` |
 | Access Token | Long-lived token from HA | `eyJhbGciOiJI...` |
-| Device Name | How this Mac appears in HA | `Marks iMac` |
+| Device Name | How this Mac appears in HA | `Office iMac` |
 | Poll Interval | Seconds between updates | `30` |
 | Idle Threshold | Seconds before "active" turns off | `300` |
 
@@ -85,7 +85,7 @@ Run once to verify it works:
 ~/.local/bin/ha-presence --once
 ```
 
-Check Home Assistant — you should see new entities like `binary_sensor.marks_imac_active`.
+Check Home Assistant — you should see new entities like `binary_sensor.macos_presence_office_imac_active`.
 
 ### 5. Install as auto-start daemon
 
@@ -138,7 +138,7 @@ automation:
   - alias: "Office lights off when Mac inactive"
     trigger:
       - platform: state
-        entity_id: binary_sensor.marks_imac_active
+        entity_id: binary_sensor.macos_presence_office_imac_active
         to: "off"
         for: "00:05:00"
     action:
@@ -154,7 +154,7 @@ automation:
   - alias: "Workstation locked notification"
     trigger:
       - platform: state
-        entity_id: binary_sensor.marks_imac_screen_locked
+        entity_id: binary_sensor.macos_presence_office_imac_screen_locked
         to: "on"
     action:
       - service: notify.mobile_app
@@ -169,7 +169,7 @@ automation:
   - alias: "Office heating when at desk"
     trigger:
       - platform: state
-        entity_id: binary_sensor.marks_imac_active
+        entity_id: binary_sensor.macos_presence_office_imac_active
     action:
       - service: climate.set_temperature
         target:

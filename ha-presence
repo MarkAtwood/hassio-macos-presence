@@ -93,8 +93,9 @@ update_states() {
         active="off"
     fi
 
-    local device_lower
-    device_lower=$(echo "$DEVICE_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')
+    local device_lower entity_prefix
+    device_lower=$(echo "$DEVICE_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr '-' '_')
+    entity_prefix="macos_presence_${device_lower}"
 
     # Convert true/false to on/off for binary sensors
     local locked_state="off" screen_state="off"
@@ -102,26 +103,26 @@ update_states() {
     [[ "$screen_on" == "true" ]] && screen_state="on"
 
     # Post binary sensors
-    post_state "binary_sensor.${device_lower}_active" "$active" \
+    post_state "binary_sensor.${entity_prefix}_active" "$active" \
         "{\"friendly_name\": \"$DEVICE_NAME Active\", \"device_class\": \"occupancy\"}"
 
-    post_state "binary_sensor.${device_lower}_screen_locked" "$locked_state" \
+    post_state "binary_sensor.${entity_prefix}_screen_locked" "$locked_state" \
         "{\"friendly_name\": \"$DEVICE_NAME Screen Locked\", \"device_class\": \"lock\"}"
 
-    post_state "binary_sensor.${device_lower}_screen_on" "$screen_state" \
+    post_state "binary_sensor.${entity_prefix}_screen_on" "$screen_state" \
         "{\"friendly_name\": \"$DEVICE_NAME Screen On\"}"
 
     # Post sensors
-    post_state "sensor.${device_lower}_idle_time" "$idle_secs" \
+    post_state "sensor.${entity_prefix}_idle_time" "$idle_secs" \
         "{\"friendly_name\": \"$DEVICE_NAME Idle Time\", \"unit_of_measurement\": \"s\", \"state_class\": \"measurement\"}"
 
-    post_state "sensor.${device_lower}_frontmost_app" "$frontmost" \
+    post_state "sensor.${entity_prefix}_frontmost_app" "$frontmost" \
         "{\"friendly_name\": \"$DEVICE_NAME Frontmost App\", \"icon\": \"mdi:application\"}"
 
-    post_state "sensor.${device_lower}_apple_id" "$apple_id" \
+    post_state "sensor.${entity_prefix}_apple_id" "$apple_id" \
         "{\"friendly_name\": \"$DEVICE_NAME Apple ID\", \"icon\": \"mdi:apple\"}"
 
-    post_state "sensor.${device_lower}_console_user" "$console_user" \
+    post_state "sensor.${entity_prefix}_console_user" "$console_user" \
         "{\"friendly_name\": \"$DEVICE_NAME Console User\", \"icon\": \"mdi:account\"}"
 }
 
