@@ -29,9 +29,20 @@ This daemon monitors actual system state: screen lock, idle time, and active app
 
 - macOS 10.15 Catalina or later
 - Home Assistant instance with REST API access
-- Long-lived access token (create in HA → Profile → Long-Lived Access Tokens)
+- Long-lived access token (see below)
 
 No additional software required — uses only built-in macOS tools (`curl`, `python3`, `osascript`, `ioreg`).
+
+### Getting a Home Assistant Token
+
+1. Open your Home Assistant web interface
+2. Click your username in the bottom-left sidebar
+3. Scroll down to **Long-Lived Access Tokens**
+4. Click **Create Token**
+5. Give it a name (e.g., "macOS Presence")
+6. Copy the token immediately — it won't be shown again
+
+The token looks like: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3...`
 
 ## Installation
 
