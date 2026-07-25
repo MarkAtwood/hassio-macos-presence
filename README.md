@@ -67,15 +67,16 @@ Run the interactive setup:
 
 You'll be prompted for:
 
-| Setting | Description | Example |
-|---------|-------------|---------|
-| HA Server URL | Your Home Assistant instance | `http://192.168.1.10:8123` |
-| Access Token | Long-lived token from HA | `eyJhbGciOiJI...` |
-| Device Name | How this Mac appears in HA | `Office iMac` |
-| Poll Interval | Seconds between updates | `30` |
-| Idle Threshold | Seconds before "active" turns off | `300` |
+| Setting | Description | Example | Storage |
+|---------|-------------|---------|---------|
+| HA Server URL | Your Home Assistant instance | `http://192.168.1.10:8123` | Keychain |
+| Access Token | Long-lived token from HA | `eyJhbGciOiJI...` | Keychain |
+| Device Name | How this Mac appears in HA | `Office iMac` | Config file |
+| Poll Interval | Seconds between updates | `30` | Config file |
+| Idle Threshold | Seconds before "active" turns off | `300` | Config file |
 
-Configuration is saved to `~/.config/ha-presence/config` (mode 600).
+Credentials are stored securely in macOS Keychain (service: `ha-presence`).
+Non-sensitive settings are saved to `~/.config/ha-presence/config`.
 
 ### 4. Test
 
@@ -202,6 +203,10 @@ rm ~/.local/bin/ha-presence
 
 # Remove configuration
 rm -rf ~/.config/ha-presence
+
+# Remove keychain entries
+security delete-generic-password -s "ha-presence-server" 2>/dev/null
+security delete-generic-password -s "ha-presence-token" 2>/dev/null
 ```
 
 Entities in Home Assistant will become "unavailable" and can be removed via the UI.

@@ -9,21 +9,34 @@ CONFIG_FILE="$CONFIG_DIR/config"
 # Defaults
 POLL_INTERVAL=30
 IDLE_THRESHOLD=300
-HASS_SERVER=""
-HASS_TOKEN=""
 DEVICE_NAME=""
 
+KEYCHAIN_SERVICE="ha-presence"
+
+get_keychain_value() {
+    security find-generic-password -a "$USER" -s "${KEYCHAIN_SERVICE}-$1" -w 2>/dev/null
+}
+
+set_keychain_value() {
+    # Delete existing, then add new
+    security delete-generic-password -a "$USER" -s "${KEYCHAIN_SERVICE}-$1" 2>/dev/null || true
+    security add-generic-password -a "$USER" -s "${KEYCHAIN_SERVICE}-$1" -w "$2"
+}
+
 load_config() {
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        echo "Config not found: $CONFIG_FILE" >&2
-        echo "Run: ha-presence --setup" >&2
-        exit 1
+    # Load non-sensitive config from file
+    if [[ -f "$CONFIG_FILE" ]]; then
+        # shellcheck source=/dev/null
+        source "$CONFIG_FILE"
     fi
-    # shellcheck source=/dev/null
-    source "$CONFIG_FILE"
+
+    # Load sensitive config from keychain
+    HASS_SERVER=$(get_keychain_value "server")
+    HASS_TOKEN=$(get_keychain_value "token")
 
     if [[ -z "$HASS_SERVER" || -z "$HASS_TOKEN" ]]; then
-        echo "HASS_SERVER and HASS_TOKEN required in $CONFIG_FILE" >&2
+        echo "Credentials not found in keychain" >&2
+        echo "Run: ha-presence --setup" >&2
         exit 1
     fi
     DEVICE_NAME="${DEVICE_NAME:-$(scutil --get LocalHostName 2>/dev/null || hostname -s)}"
@@ -127,26 +140,26 @@ update_states() {
 }
 
 setup() {
-    mkdir -p "$CONFIG_DIR"
-    if [[ -f "$CONFIG_FILE" ]]; then
-        echo "Config exists: $CONFIG_FILE"
-        read -rp "Overwrite? [y/N] " yn
-        [[ "$yn" =~ ^[Yy] ]] || exit 0
-    fi
-
     echo "Home Assistant Presence Daemon Setup"
     echo "====================================="
 
     read -rp "HA Server URL (e.g., http://10.0.0.10:8123): " server
-    read -rp "HA Long-Lived Access Token: " token
+    read -rsp "HA Long-Lived Access Token: " token
+    echo ""
     read -rp "Device name [$(scutil --get LocalHostName 2>/dev/null || hostname -s)]: " name
     read -rp "Poll interval seconds [30]: " interval
     read -rp "Idle threshold seconds [300]: " threshold
 
+    # Store credentials in keychain
+    set_keychain_value "server" "$server"
+    set_keychain_value "token" "$token"
+    echo "Credentials saved to macOS Keychain"
+
+    # Store non-sensitive config in file
+    mkdir -p "$CONFIG_DIR"
     cat > "$CONFIG_FILE" << EOF
 # Home Assistant Presence Daemon Config
-HASS_SERVER="${server}"
-HASS_TOKEN="${token}"
+# Credentials stored in macOS Keychain (service: ha-presence)
 DEVICE_NAME="${name:-}"
 POLL_INTERVAL="${interval:-30}"
 IDLE_THRESHOLD="${threshold:-300}"
