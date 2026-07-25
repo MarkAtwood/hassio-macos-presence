@@ -1,0 +1,224 @@
+#!/bin/bash
+# ha-presence: macOS presence daemon for Home Assistant
+# Monitors login, lock, and idle state. Works on ethernet (no WiFi required).
+set -eu
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/ha-presence"
+CONFIG_FILE="$CONFIG_DIR/config"
+
+# Defaults
+POLL_INTERVAL=30
+IDLE_THRESHOLD=300
+HASS_SERVER=""
+HASS_TOKEN=""
+DEVICE_NAME=""
+
+load_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        echo "Config not found: $CONFIG_FILE" >&2
+        echo "Run: ha-presence --setup" >&2
+        exit 1
+    fi
+    # shellcheck source=/dev/null
+    source "$CONFIG_FILE"
+
+    if [[ -z "$HASS_SERVER" || -z "$HASS_TOKEN" ]]; then
+        echo "HASS_SERVER and HASS_TOKEN required in $CONFIG_FILE" >&2
+        exit 1
+    fi
+    DEVICE_NAME="${DEVICE_NAME:-$(scutil --get LocalHostName 2>/dev/null || hostname -s)}"
+}
+
+get_idle_seconds() {
+    ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
+}
+
+is_screen_locked() {
+    # Check if screen saver is running (indicates locked)
+    pgrep -q ScreenSaverEngine && echo "true" && return
+    # Check if login window is front (indicates locked)
+    local front
+    front=$(osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null)
+    [[ "$front" == "loginwindow" ]] && echo "true" && return
+    echo "false"
+}
+
+is_screen_on() {
+    # Check if main display is online via CoreGraphics
+    /usr/bin/python3 -c "
+import ctypes
+cg = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+cg.CGMainDisplayID.restype = ctypes.c_uint32
+cg.CGDisplayIsOnline.argtypes = [ctypes.c_uint32]
+cg.CGDisplayIsOnline.restype = ctypes.c_bool
+print('true' if cg.CGDisplayIsOnline(cg.CGMainDisplayID()) else 'false')
+" 2>/dev/null || echo "true"  # Assume on if check fails
+}
+
+get_frontmost_app() {
+    osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null || echo "unknown"
+}
+
+post_state() {
+    local entity_id="$1" state="$2" attrs="${3:-{\}}"
+    curl -sf -X POST \
+        -H "Authorization: Bearer $HASS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"state\": \"$state\", \"attributes\": $attrs}" \
+        "$HASS_SERVER/api/states/$entity_id" >/dev/null
+}
+
+update_states() {
+    local idle_secs locked screen_on active frontmost
+
+    idle_secs=$(get_idle_seconds)
+    locked=$(is_screen_locked)
+    screen_on=$(is_screen_on)
+    frontmost=$(get_frontmost_app)
+
+    # Active = not locked, screen on, idle < threshold
+    if [[ "$locked" == "false" && "$screen_on" == "true" && "$idle_secs" -lt "$IDLE_THRESHOLD" ]]; then
+        active="on"
+    else
+        active="off"
+    fi
+
+    local device_lower
+    device_lower=$(echo "$DEVICE_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')
+
+    # Convert true/false to on/off for binary sensors
+    local locked_state="off" screen_state="off"
+    [[ "$locked" == "true" ]] && locked_state="on"
+    [[ "$screen_on" == "true" ]] && screen_state="on"
+
+    # Post binary sensors
+    post_state "binary_sensor.${device_lower}_active" "$active" \
+        "{\"friendly_name\": \"$DEVICE_NAME Active\", \"device_class\": \"occupancy\"}"
+
+    post_state "binary_sensor.${device_lower}_screen_locked" "$locked_state" \
+        "{\"friendly_name\": \"$DEVICE_NAME Screen Locked\", \"device_class\": \"lock\"}"
+
+    post_state "binary_sensor.${device_lower}_screen_on" "$screen_state" \
+        "{\"friendly_name\": \"$DEVICE_NAME Screen On\"}"
+
+    # Post sensors
+    post_state "sensor.${device_lower}_idle_time" "$idle_secs" \
+        "{\"friendly_name\": \"$DEVICE_NAME Idle Time\", \"unit_of_measurement\": \"s\", \"state_class\": \"measurement\"}"
+
+    post_state "sensor.${device_lower}_frontmost_app" "$frontmost" \
+        "{\"friendly_name\": \"$DEVICE_NAME Frontmost App\", \"icon\": \"mdi:application\"}"
+}
+
+setup() {
+    mkdir -p "$CONFIG_DIR"
+    if [[ -f "$CONFIG_FILE" ]]; then
+        echo "Config exists: $CONFIG_FILE"
+        read -rp "Overwrite? [y/N] " yn
+        [[ "$yn" =~ ^[Yy] ]] || exit 0
+    fi
+
+    echo "Home Assistant Presence Daemon Setup"
+    echo "====================================="
+
+    read -rp "HA Server URL (e.g., http://10.0.0.10:8123): " server
+    read -rp "HA Long-Lived Access Token: " token
+    read -rp "Device name [$(scutil --get LocalHostName 2>/dev/null || hostname -s)]: " name
+    read -rp "Poll interval seconds [30]: " interval
+    read -rp "Idle threshold seconds [300]: " threshold
+
+    cat > "$CONFIG_FILE" << EOF
+# Home Assistant Presence Daemon Config
+HASS_SERVER="${server}"
+HASS_TOKEN="${token}"
+DEVICE_NAME="${name:-}"
+POLL_INTERVAL="${interval:-30}"
+IDLE_THRESHOLD="${threshold:-300}"
+EOF
+    chmod 600 "$CONFIG_FILE"
+    echo "Config saved to $CONFIG_FILE"
+}
+
+run_once() {
+    load_config
+    update_states
+    echo "States updated"
+}
+
+run_daemon() {
+    load_config
+    echo "ha-presence daemon starting (poll=${POLL_INTERVAL}s, idle_threshold=${IDLE_THRESHOLD}s)"
+    while true; do
+        update_states || echo "Update failed" >&2
+        sleep "$POLL_INTERVAL"
+    done
+}
+
+install_launchd() {
+    local plist="$HOME/Library/LaunchAgents/com.ha.presence.plist"
+    local script_path
+    script_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
+    cat > "$plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ha.presence</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$script_path</string>
+        <string>--daemon</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ha-presence.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ha-presence.log</string>
+</dict>
+</plist>
+EOF
+    launchctl unload "$plist" 2>/dev/null || true
+    launchctl load "$plist"
+    echo "Installed and started: $plist"
+    echo "Logs: /tmp/ha-presence.log"
+}
+
+uninstall_launchd() {
+    local plist="$HOME/Library/LaunchAgents/com.ha.presence.plist"
+    launchctl unload "$plist" 2>/dev/null || true
+    rm -f "$plist"
+    echo "Uninstalled"
+}
+
+usage() {
+    cat << EOF
+ha-presence: macOS presence daemon for Home Assistant
+
+Usage: ha-presence [command]
+
+Commands:
+    --setup      Interactive config setup
+    --once       Update states once and exit
+    --daemon     Run as daemon (for launchd)
+    --install    Install as launchd agent (auto-start)
+    --uninstall  Remove launchd agent
+    --help       Show this help
+
+Config: ~/.config/ha-presence/config
+EOF
+}
+
+case "${1:-}" in
+    --setup)    setup ;;
+    --once)     run_once ;;
+    --daemon)   run_daemon ;;
+    --install)  install_launchd ;;
+    --uninstall) uninstall_launchd ;;
+    --help|-h)  usage ;;
+    "")         usage ;;
+    *)          echo "Unknown: $1"; usage; exit 1 ;;
+esac
