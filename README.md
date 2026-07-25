@@ -22,6 +22,8 @@ This daemon monitors actual system state: screen lock, idle time, and active app
 | `binary_sensor.<name>_screen_on` | binary | Display power state |
 | `sensor.<name>_idle_time` | sensor | Seconds since last keyboard/mouse input |
 | `sensor.<name>_frontmost_app` | sensor | Currently active application |
+| `sensor.<name>_apple_id` | sensor | Logged-in Apple ID (iCloud account) |
+| `sensor.<name>_console_user` | sensor | macOS username at console |
 
 ## Requirements
 

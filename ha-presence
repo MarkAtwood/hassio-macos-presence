@@ -59,6 +59,14 @@ get_frontmost_app() {
     osascript -e 'tell application "System Events" to get name of first process whose frontmost is true' 2>/dev/null || echo "unknown"
 }
 
+get_apple_id() {
+    defaults read MobileMeAccounts Accounts 2>/dev/null | grep -m1 'AccountID' | sed 's/.*= "\(.*\)";/\1/' || echo "unknown"
+}
+
+get_console_user() {
+    stat -f '%Su' /dev/console 2>/dev/null || echo "unknown"
+}
+
 post_state() {
     local entity_id="$1" state="$2" attrs="${3:-{\}}"
     curl -sf -X POST \
@@ -69,12 +77,14 @@ post_state() {
 }
 
 update_states() {
-    local idle_secs locked screen_on active frontmost
+    local idle_secs locked screen_on active frontmost apple_id console_user
 
     idle_secs=$(get_idle_seconds)
     locked=$(is_screen_locked)
     screen_on=$(is_screen_on)
     frontmost=$(get_frontmost_app)
+    apple_id=$(get_apple_id)
+    console_user=$(get_console_user)
 
     # Active = not locked, screen on, idle < threshold
     if [[ "$locked" == "false" && "$screen_on" == "true" && "$idle_secs" -lt "$IDLE_THRESHOLD" ]]; then
@@ -107,6 +117,12 @@ update_states() {
 
     post_state "sensor.${device_lower}_frontmost_app" "$frontmost" \
         "{\"friendly_name\": \"$DEVICE_NAME Frontmost App\", \"icon\": \"mdi:application\"}"
+
+    post_state "sensor.${device_lower}_apple_id" "$apple_id" \
+        "{\"friendly_name\": \"$DEVICE_NAME Apple ID\", \"icon\": \"mdi:apple\"}"
+
+    post_state "sensor.${device_lower}_console_user" "$console_user" \
+        "{\"friendly_name\": \"$DEVICE_NAME Console User\", \"icon\": \"mdi:account\"}"
 }
 
 setup() {
